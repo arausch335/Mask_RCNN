@@ -29,12 +29,14 @@ class CustomConfig(Config):
     """
 
     def load_from_yaml(self, filePath):
+        # Make changes to base config as specified in config file
         data = self.read_yaml(filePath)
         fullData = self.read_yaml(os.path.join(CONFIG_DIR, 'baseConfig.yaml'))
 
         for key, value in data.items():
             fullData[key] = value
 
+        # Make changes to class instance
         self.NAME = fullData['NAME']
         self.DATASET_DIR = fullData['DATASET_DIR']
         self.WEIGHTS = fullData['WEIGHTS']
@@ -88,14 +90,7 @@ class CustomConfig(Config):
         self.TRAIN_BN = fullData['TRAIN_BN']
         self.GRADIENT_CLIP_NORM = fullData['GRADIENT_CLIP_NORM']
 
-        self.BATCH_SIZE = self.IMAGES_PER_GPU * self.GPU_COUNT
-        if self.IMAGE_RESIZE_MODE == "crop":
-            self.IMAGE_SHAPE = np.array([self.IMAGE_MIN_DIM, self.IMAGE_MIN_DIM,
-                                         self.IMAGE_CHANNEL_COUNT])
-        else:
-            self.IMAGE_SHAPE = np.array([self.IMAGE_MAX_DIM, self.IMAGE_MAX_DIM,
-                                         self.IMAGE_CHANNEL_COUNT])
-        self.IMAGE_META_SIZE = 1 + 3 + 3 + 4 + 1 + self.NUM_CLASSES
+        self.compute_attributes()
 
     def read_yaml(self, filePath):
         stream = open(filePath, 'r')
@@ -124,26 +119,10 @@ class CustomDataset(utils.Dataset):
         dataset_dir = os.path.join(dataset_dir, subset)
 
         # Load annotations
-        # VGG Image Annotator (up to version 1.6) saves each image in the form:
-        # { 'filename': '28503151_5b5b7ec140_b.jpg',
-        #   'regions': {
-        #       '0': {
-        #           'region_attributes': {},
-        #           'shape_attributes': {
-        #               'all_points_x': [...],
-        #               'all_points_y': [...],
-        #               'name': 'polygon'}},
-        #       ... more regions ...
-        #   },
-        #   'size': 100202
-        # }
-        # We mostly care about the x and y coordinates of each region
-        # Note: In VIA 2.0, regions was changed from a dict to a list.
         annotations = json.load(open(os.path.join(dataset_dir, "annotations.json")))
-        annotations = list(annotations.values())  # don't need the dict keys
+        annotations = list(annotations.values())
 
-        # The VIA tool saves images in the JSON even if they don't have any
-        # annotations. Skip unannotated images.
+        # Skip unannotated images.
         annotations = [a for a in annotations if a['regions']]
 
         # Add images
@@ -232,8 +211,13 @@ class CustomDataset(utils.Dataset):
 
 def train(configFile):
     """Train the model."""
-    logsContents = os.listdir(LOGS_DIR)
+    # Get current contents of log directory
+    if os.path.exists(LOGS_DIR):
+        logsContents = os.listdir(LOGS_DIR)
+    else:
+        logsContents = []
 
+    # Create instance of custom config and load in file
     custom = CustomConfig()
     custom.load_from_yaml(configFile)
     custom.display()
@@ -243,8 +227,10 @@ def train(configFile):
     weights = custom.WEIGHTS
     dataset_dir = DATASET_DIR if custom.DATASET_DIR == 'dataset' else custom.DATASET_DIR
 
+    # Create model based on custom config
     model = modellib.MaskRCNN(mode="training", config=custom, model_dir=LOGS_DIR)
 
+    # Retrieve weights
     if weights.lower() == "coco":
         weights_path = COCO_WEIGHTS_PATH
         # Download weights file
@@ -281,13 +267,14 @@ def train(configFile):
     dataset_val.load_custom(dataset_dir, "val")
     dataset_val.prepare()
 
-    print("Training network heads")
+    # Train
+    print("Training model")
     model.train(dataset_train, dataset_val,
                 learning_rate=custom.LEARNING_RATE,
                 epochs=custom.EPOCHS,
                 layers=custom.LAYERS)
 
-    # Rename
+    # Rename to config.NAME
     logsContents2 = os.listdir(LOGS_DIR)
     newDirectory = list(set(logsContents2) - set(logsContents))[0]
     if os.path.exists(os.path.join(LOGS_DIR, name)):
@@ -295,95 +282,3 @@ def train(configFile):
                   os.path.join(LOGS_DIR, f'{name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'))
     os.rename(os.path.join(LOGS_DIR, newDirectory),
               os.path.join(LOGS_DIR, name))
-
-
-if __name__ == '__main__':
-    import argparse
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description='Train Mask R-CNN to detect custom objects.')
-    parser.add_argument("command",
-                        metavar="<command>",
-                        help="'train' or 'splash'")
-    parser.add_argument('--dataset', required=False,
-                        metavar="/path/to/custom/dataset/",
-                        help='Directory of the custom dataset')
-    parser.add_argument('--weights', required=True,
-                        metavar="/path/to/weights.h5",
-                        help="Path to weights .h5 file or 'coco'")
-    parser.add_argument('--logs', required=False,
-                        default=LOGS_DIR,
-                        metavar="/path/to/logs/",
-                        help='Logs and checkpoints directory (default=logs/)')
-    parser.add_argument('--image', required=False,
-                        metavar="path or URL to image",
-                        help='Image to apply the color splash effect on')
-    parser.add_argument('--video', required=False,
-                        metavar="path or URL to video",
-                        help='Video to apply the color splash effect on')
-    args = parser.parse_args()
-
-    # Validate arguments
-    if args.command == "train":
-        assert args.dataset, "Argument --dataset is required for training"
-    elif args.command == "splash":
-        assert args.image or args.video,\
-               "Provide --image or --video to apply color splash"
-
-    print("Weights: ", args.weights)
-    print("Dataset: ", args.dataset)
-    print("Logs: ", args.logs)
-
-    # Configurations
-    if args.command == "train":
-        config = CustomConfig()
-    else:
-        class InferenceConfig(CustomConfig):
-            # Set batch size to 1 since we'll be running inference on
-            # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
-            GPU_COUNT = 1
-            IMAGES_PER_GPU = 1
-        config = InferenceConfig()
-    config.display()
-
-    # Create model
-    if args.command == "train":
-        model = modellib.MaskRCNN(mode="training", config=config,
-                                  model_dir=args.logs)
-    else:
-        model = modellib.MaskRCNN(mode="inference", config=config,
-                                  model_dir=args.logs)
-
-    # Select weights file to load
-    if args.weights.lower() == "coco":
-        weights_path = COCO_WEIGHTS_PATH
-        # Download weights file
-        if not os.path.exists(weights_path):
-            utils.download_trained_weights(weights_path)
-    elif args.weights.lower() == "last":
-        # Find last trained weights
-        weights_path = model.find_last()
-    elif args.weights.lower() == "imagenet":
-        # Start from ImageNet trained weights
-        weights_path = model.get_imagenet_weights()
-    else:
-        weights_path = args.weights
-
-    # Load weights
-    print("Loading weights ", weights_path)
-    if args.weights.lower() == "coco":
-        # Exclude the last layers because they require a matching
-        # number of classes
-        model.load_weights(weights_path, by_name=True, exclude=[
-            "mrcnn_class_logits", "mrcnn_bbox_fc",
-            "mrcnn_bbox", "mrcnn_mask"])
-    else:
-        model.load_weights(weights_path, by_name=True)
-
-    # Train or evaluate
-    if args.command == "train":
-        train(model)
-    else:
-        print("'{}' is not recognized. "
-              "Use 'train' or 'splash'".format(args.command))

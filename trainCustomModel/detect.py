@@ -9,6 +9,7 @@ try:
 except AssertionError:
     MASK_RCNN_DIR = os.path.abspath('./')
 
+# import files from parent directories
 sys.path.append(MASK_RCNN_DIR)
 from pathVariables import *
 import mrcnn.model as modellib
@@ -19,9 +20,10 @@ from train import CustomConfig
 
 
 def detect(customConfig, weights='last'):
+    # Edit parameters for inference
     class InferenceConfig(CustomConfig):
-        # Set batch size to 1 since we'll be running inference on
-        # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
+        # Set batch size to 1 since we'll be running inference on one image at a time.
+        # Batch size = GPU_COUNT * IMAGES_PER_GPU
         def load_inference(self):
             self.GPU_COUNT = 1
             self.IMAGES_PER_GPU = 1
@@ -35,12 +37,12 @@ def detect(customConfig, weights='last'):
     # Create model object in inference mode.
     model = modellib.MaskRCNN(mode="inference", model_dir=LOGS_DIR, config=config)
 
-    # Load weights trained on MS-COCO
+    # Load weights from last model
     if weights == 'last':
         weights = model.find_last()
     model.keras_model.load_weights(weights, by_name=True)
 
-    # Get classes
+    # Get classes from config file
     class_names = ['BG']
     class_names.extend(config.CLASSES.values())
 
