@@ -1,0 +1,13 @@
+---
+NAME: 'test'
+
+WEIGHTS: 'coco'
+EPOCHS: 1
+CLASSES: {
+    1: 'Heart'
+}
+
+NUM_CLASSES: 2
+STEPS_PER_EPOCH: 10
+VALIDATION_STEPS: 5
+

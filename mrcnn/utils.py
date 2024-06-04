@@ -105,12 +105,14 @@ def compute_overlaps_masks(masks1, masks2):
     # If either set of masks is empty return empty result
     if masks1.shape[-1] == 0 or masks2.shape[-1] == 0:
         return np.zeros((masks1.shape[-1], masks2.shape[-1]))
+    # print(masks1.shape, masks2.shape)
+
     # flatten masks and compute their areas
     masks1 = np.reshape(masks1 > .5, (-1, masks1.shape[-1])).astype(np.float32)
     masks2 = np.reshape(masks2 > .5, (-1, masks2.shape[-1])).astype(np.float32)
     area1 = np.sum(masks1, axis=0)
     area2 = np.sum(masks2, axis=0)
-
+    # print(masks1.shape, masks2.shape)
     # intersections and union
     intersections = np.dot(masks1.T, masks2)
     union = area1[:, None] + area2[None, :] - intersections
@@ -677,7 +679,7 @@ def compute_matches(gt_boxes, gt_class_ids, gt_masks,
     pred_class_ids = pred_class_ids[indices]
     pred_scores = pred_scores[indices]
     pred_masks = pred_masks[..., indices]
-
+    # print(pred_masks.shape)
     # Compute IoU overlaps [pred_masks, gt_masks]
     overlaps = compute_overlaps_masks(pred_masks, gt_masks)
 
@@ -884,7 +886,7 @@ def denorm_boxes(boxes, shape):
     return np.around(np.multiply(boxes, scale) + shift).astype(np.int32)
 
 
-def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
+def resize(image, output_shape, order=0, mode='constant', cval=0, clip=True,
            preserve_range=False, anti_aliasing=False, anti_aliasing_sigma=None):
     """A wrapper for Scikit-Image resize().
 

@@ -1,0 +1,26 @@
+---
+NAME: 'heart_800s80e100v_1.5mml'
+DATASET_DIR: 'dataset'
+WEIGHTS: 'coco'
+EPOCHS: 80
+LAYERS: 'heads'
+CLASSES: {
+    1: 'Heart'
+}
+
+IMAGES_PER_GPU: 2
+NUM_CLASSES: 1 + 1
+STEPS_PER_EPOCH: 800                   # 300
+DETECTION_MIN_CONFIDENCE: 0.9          # 0.7
+VALIDATION_STEPS: 100                  # 50
+
+TRAIN_ROIS_PER_IMAGE: 50               # 200
+MAX_GT_INSTANCES: 2                    # 100
+
+LOSS_WEIGHTS: {
+    "rpn_class_loss": 1.,
+    "rpn_bbox_loss": 1.,
+    "mrcnn_class_loss": 1.,
+    "mrcnn_bbox_loss": 1.,
+    "mrcnn_mask_loss": 1.5              # 1.
+}
