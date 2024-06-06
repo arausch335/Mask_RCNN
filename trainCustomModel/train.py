@@ -2,9 +2,13 @@ import os
 import sys
 import json
 from datetime import datetime
+import imgaug.augmenters as iaa
 import numpy as np
 import skimage.draw
 import yaml
+import pandas as pd
+from keras.callbacks import CSVLogger
+
 
 # Root directory of the project
 MASK_RCNN_DIR = os.path.abspath("../../")
@@ -38,12 +42,14 @@ class CustomConfig(Config):
 
         # Make changes to class instance
         self.NAME = fullData['NAME']
-        self.DATASET_DIR = fullData['DATASET_DIR']
+        self.DATASET_DIR = DATASET_DIR if fullData['DATASET_DIR'] == 'dataset' else fullData['DATASET_DIR']
         self.WEIGHTS = fullData['WEIGHTS']
         self.EPOCHS = fullData['EPOCHS']
         self.LAYERS = fullData['LAYERS']
         self.CLASSES = fullData['CLASSES']
         self.PREPROCESSED_DATA_DIR = fullData['PREPROCESSED_DATA_DIR']
+        self.AUGMENTATION = fullData['AUGMENTATION']
+        self.EVALUATE = fullData['EVALUATE']
 
         self.GPU_COUNT = fullData['GPU_COUNT']
         self.IMAGES_PER_GPU = fullData['IMAGES_PER_GPU']
@@ -89,8 +95,39 @@ class CustomConfig(Config):
         self.USE_RPN_ROIS = fullData['USE_RPN_ROIS']
         self.TRAIN_BN = fullData['TRAIN_BN']
         self.GRADIENT_CLIP_NORM = fullData['GRADIENT_CLIP_NORM']
+        self.CONFIG_FILE = filePath
 
         self.compute_attributes()
+    
+    def create_dataframe(self):
+        config_series = pd.Series({
+            'name': self.NAME,
+            'subset': None,
+            'epochs': self.EPOCHS,
+            'steps_per_epoch': self.STEPS_PER_EPOCH,
+            'validation_steps': self.VALIDATION_STEPS,
+            'augmentation': self.AUGMENTATION,
+            'num_classes': self.NUM_CLASSES,
+            'layers': self.LAYERS,
+            'train_rois_per_image': self.TRAIN_ROIS_PER_IMAGE,
+            'max_gt_instances': self.MAX_GT_INSTANCES,
+            'learning_rate': self.LEARNING_RATE,
+            'learning_momentum': self.LEARNING_MOMENTUM,
+            'weight_decay': self.WEIGHT_DECAY,
+            'rpn_class_loss': self.LOSS_WEIGHTS['rpn_class_loss'],
+            'rpn_bbox_loss': self.LOSS_WEIGHTS['rpn_bbox_loss'],
+            'mrcnn_class_loss': self.LOSS_WEIGHTS['mrcnn_class_loss'],
+            'mrcnn_bbox_loss': self.LOSS_WEIGHTS['mrcnn_bbox_loss'],
+            'mrcnn_mask_loss': self.LOSS_WEIGHTS['mrcnn_mask_loss'],
+
+            'training_time': self.TRAIN_TIME,
+            'detecting_time_per_image': None,
+            'mean_average_precision': None,
+            'mean_precisions': None,
+            'mean_recalls': None,
+            'mean_overlaps': None
+        })
+        self.CONFIG_DATAFRAME = config_series.to_frame().transpose()
 
     def read_yaml(self, filePath):
         stream = open(filePath, 'r')
@@ -163,6 +200,10 @@ class CustomDataset(utils.Dataset):
                 polygons=polygons,
                 num_ids=num_ids)
 
+    def load_from_config(self, config):
+        self.name = config.NAME
+        self.classes = config.CLASSES
+
     def load_mask(self, image_id):
         """Generate instance masks for an image.
        Returns:
@@ -209,7 +250,7 @@ class CustomDataset(utils.Dataset):
 ############################################################
 
 
-def train(configFile):
+def train(custom):
     """Train the model."""
     # Get current contents of log directory
     if os.path.exists(LOGS_DIR):
@@ -217,9 +258,7 @@ def train(configFile):
     else:
         logsContents = []
 
-    # Create instance of custom config and load in file
-    custom = CustomConfig()
-    custom.load_from_yaml(configFile)
+    # Display instance of custom class
     custom.display()
 
     name = custom.NAME
@@ -241,12 +280,12 @@ def train(configFile):
         weights_path = model.find_last()
     else:
         weights_path = weights
+    custom.WEIGHTS = weights_path
 
     # Load weights
     print("Loading weights ", weights_path)
     if weights.lower() == "coco":
-        # Exclude the last layers because they require a matching
-        # number of classes
+        # Exclude the last layers because they require a matching number of classes
         model.load_weights(weights_path, by_name=True, exclude=[
             "mrcnn_class_logits", "mrcnn_bbox_fc",
             "mrcnn_bbox", "mrcnn_mask"])
@@ -255,30 +294,62 @@ def train(configFile):
 
     # Training dataset.
     dataset_train = CustomDataset()
-    dataset_train.name = name
-    dataset_train.classes = classes
+    dataset_train.load_from_config(custom)
     dataset_train.load_custom(dataset_dir, "train")
     dataset_train.prepare()
+    custom.TRAIN_DATASET = dataset_train
 
     # Validation dataset
     dataset_val = CustomDataset()
-    dataset_val.name = name
-    dataset_val.classes = classes
+    dataset_val.load_from_config(custom)
     dataset_val.load_custom(dataset_dir, "val")
     dataset_val.prepare()
+    custom.VAL_DATASET = dataset_val
+
+    # Image Augmentation
+    augmentation = custom.AUGMENTATION
+    if augmentation:
+        aug = iaa.Sometimes(5 / 6, iaa.OneOf([
+            iaa.Fliplr(1),
+            iaa.Flipud(1),
+            iaa.Affine(rotate=(-45, 45)),
+            iaa.Affine(rotate=(-90, 90)),
+            iaa.Affine(scale=(0.5, 1.5))
+        ]))
+    else:
+        aug = {}
+
+    # Get start time
+    start = datetime.now()
 
     # Train
     print("Training model")
     model.train(dataset_train, dataset_val,
                 learning_rate=custom.LEARNING_RATE,
                 epochs=custom.EPOCHS,
-                layers=custom.LAYERS)
+                layers=custom.LAYERS,
+                augmentation=aug,
+                custom_callbacks=[CSVLogger(os.path.join(LOGS_DIR, f'log.csv'),
+                                            append=True, separator=';')])
 
-    # Rename to config.NAME
+    # Get end time
+    stop = datetime.now()
+
+    # Subtract times to get time elapsed
+    time_difference = stop - start
+    custom.TRAIN_TIME = time_difference.total_seconds()
+
+    # Get new log directory
     logsContents2 = os.listdir(LOGS_DIR)
     newDirectory = list(set(logsContents2) - set(logsContents))[0]
+
+    # Rename to config.NAME
     if os.path.exists(os.path.join(LOGS_DIR, name)):
         os.rename(os.path.join(LOGS_DIR, name),
                   os.path.join(LOGS_DIR, f'{name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'))
     os.rename(os.path.join(LOGS_DIR, newDirectory),
               os.path.join(LOGS_DIR, name))
+
+    # Move logs directory
+    os.rename(os.path.join(LOGS_DIR, 'log.csv'),
+              os.path.join(LOGS_DIR, f'{name}\\log.csv'))

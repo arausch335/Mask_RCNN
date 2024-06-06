@@ -1,5 +1,4 @@
 import os.path
-
 from trainCustomModel.train import CustomConfig
 from pathVariables import *
 import json
@@ -18,8 +17,9 @@ def getFrames(videoDirPath, dstDirPath):
         while success:
             cv2.imwrite(os.path.join(dstDirPath, f'frame_{str(count).zfill(6)}.PNG'), image)
             success, image = vidcap.read()
-            print('Read a new frame: ', success)
+            # print('Read a new frame: ', success)
             count += 1
+        print(f'Video {video} successfully converted to images')
 
 
 def COCO_to_VIA(ANNOTATION_PATH):
@@ -107,13 +107,20 @@ def COCO_to_VIA(ANNOTATION_PATH):
     with open(os.path.join(os.path.dirname(ANNOTATION_PATH), 'annotations.json'), 'w') as f:
         json.dump(new_annotations, f)
 
+    print(f'COCO JSON file {os.path.basename(ANNOTATION_PATH)} converted to VIA JSON format')
+
     return os.path.join(os.path.dirname(ANNOTATION_PATH), 'annotations.json')
 
 
-def processDataset(configFile, split=(85, 15), get_frames=False, convert_annotations=False):
+def processDataset(custom, split=(85, 15), get_frames=False, replace=False):
+    # Check to see if dataset exists, and replace is False
+    if os.path.exists(DATASET_DIR) and replace is False:
+        print('Processed dataset already exists\n\n')
+        return
+
+    print('Processing Data\n')
+
     # Read preprocessed data and output data paths from config
-    custom = CustomConfig()
-    custom.load_from_yaml(configFile)
     dataDir = os.path.join(MASK_RCNN_DIR, 'trainingData') if custom.PREPROCESSED_DATA_DIR == 'trainingData' \
         else custom.PREPROCESSED_DATA_DIR
     outputDir = CUSTOM_DIR if custom.DATASET_DIR == 'dataset' else custom.DATASET_DIR
@@ -128,11 +135,12 @@ def processDataset(configFile, split=(85, 15), get_frames=False, convert_annotat
         images = os.listdir(imagesDir)
 
     # Convert CVAT-exported COCO format to VIA format if necessary
-    annotationPath = os.path.join(dataDir, r'annotations\instances_default.json')
-    annotations = json.load(open(annotationPath))
-    if (annotations['annotations'][0]['segmentation'] or convert_annotations is True or
-            os.path.exists(os.path.join(dataDir, r'annotations\annotations.json'))):
-        annotationPath = COCO_to_VIA(annotationPath)
+    annotationPathCOCO = os.path.join(dataDir, r'annotations\instances_default.json')
+    annotationPathVIA = os.path.join(dataDir, r'annotations\annotations.json')
+    if os.path.exists(annotationPathVIA):
+        annotations = json.load(open(annotationPathVIA))
+    else:
+        annotationPath = COCO_to_VIA(annotationPathCOCO)
         annotations = json.load(open(annotationPath))
 
     # Split annotated images into train and validation
@@ -181,3 +189,5 @@ def processDataset(configFile, split=(85, 15), get_frames=False, convert_annotat
         os.rename(os.path.join(outputDir, 'dataset'),
                   os.path.join(outputDir, f'dataset_{datetime.now().strftime("%Y%m%d_%H%M%S")}'))
     shutil.move(tempDatasetDir, outputDir)
+
+    print('Processed dataset created\n\n')

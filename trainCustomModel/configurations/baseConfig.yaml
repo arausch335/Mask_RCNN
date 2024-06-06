@@ -4,6 +4,8 @@ NAME: ''
 PREPROCESSED_DATA_DIR: 'trainingData'
 DATASET_DIR: 'dataset'
 LAYERS: 'heads'
+EVALUATE: False
+AUGMENTATION: {}
 
 GPU_COUNT: 1
 IMAGES_PER_GPU: 2

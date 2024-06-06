@@ -22,6 +22,7 @@ import urllib.request
 import shutil
 import warnings
 from distutils.version import LooseVersion
+import imgaug.augmenters as iaa
 
 # URL from which to download the latest COCO trained weights
 COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5"
@@ -293,6 +294,11 @@ class Dataset(object):
         """
         return ""
 
+    # Parse image augmentation from config
+    # def determine_modification(self, key):
+    #     if key.lower() == 'sometimes':
+    #
+
     def prepare(self, class_map=None):
         """Prepares the Dataset class for use.
 
@@ -328,6 +334,14 @@ class Dataset(object):
                 # Include BG class in all datasets
                 if i == 0 or source == info['source']:
                     self.source_class_ids[source].append(i)
+
+        # Image Augmentation
+        # augmentation = self.AUGMENTATION
+        # configSeq = augmentation.keys()
+        # if len(configSeq) == 0:
+        #     pass
+        # elif len(configSeq) == 1:
+
 
     def map_source_class_id(self, source_class_id):
         """Takes a source class ID and returns the int class ID assigned to it.
